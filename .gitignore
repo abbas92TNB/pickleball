@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-ssr
+.vercel
+*.local
+.env
+.env.local
+.DS_Store
+*.tsbuildinfo
+
+# local Claude Code settings
+.claude/settings.local.json

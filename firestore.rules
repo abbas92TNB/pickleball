@@ -1,0 +1,68 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// Pickleball Fun Day - security rules.
+//
+// The app is deliberately open: anyone signed in (everyone is anonymous) can
+// create a session and anyone can register into one by scanning its QR. The
+// rules enforce the two things that actually matter:
+//
+//   1. Only the host can change the session, approve players, or remove them.
+//      In particular a player CANNOT approve themselves - self-registration is
+//      forced to arrive with status 'pending'.
+//   2. Scores stay open to every signed-in device on purpose. Any of the four
+//      players on court is meant to be able to enter and correct their game,
+//      and we record who saved it last instead of locking it. Restricting this
+//      to the four names would mean reading the whole schedule inside a rule
+//      on every keystroke; for a friendly game the social check is the point.
+// ---------------------------------------------------------------------------
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    match /sessions/{code} {
+
+      function hostUid() {
+        return get(/databases/$(database)/documents/sessions/$(code)).data.hostUid;
+      }
+
+      function isHost() {
+        return signedIn() && hostUid() == request.auth.uid;
+      }
+
+      // Sessions are world-readable so the board and the table render for all.
+      allow read: if signedIn();
+
+      // Anyone can host, but only as themselves.
+      allow create: if signedIn() && request.resource.data.hostUid == request.auth.uid;
+
+      // Only the host edits the session, and the host cannot be reassigned.
+      allow update: if signedIn()
+        && resource.data.hostUid == request.auth.uid
+        && request.resource.data.hostUid == resource.data.hostUid;
+
+      allow delete: if signedIn() && resource.data.hostUid == request.auth.uid;
+
+      match /players/{playerId} {
+        allow read: if signedIn();
+
+        // Self-registration must be pending. Only the host may create an
+        // already-approved player (the "add someone yourself" button).
+        allow create: if signedIn()
+          && (request.resource.data.status == 'pending' || isHost());
+
+        // Approving, declining, renaming and removing are the host's alone.
+        allow update, delete: if isHost();
+      }
+
+      match /scores/{slot} {
+        allow read: if signedIn();
+        allow write: if signedIn();
+      }
+    }
+  }
+}
